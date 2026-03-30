@@ -2,8 +2,10 @@ from typing import List
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_core.documents import Document
 
+from src.utils.config import CHUNK_SIZE, CHUNK_OVERLAP, RAW_DATA_DIR
 
-def chunk_documents(documents: List[Document], chunk_size: int = 1000, chunk_overlap: int = 100) -> List[Document]:
+
+def chunk_documents(documents: List[Document]) -> List[Document]:
     """
     Split documents into smaller, overlapping chunks using a recursive strategy.
 
@@ -16,8 +18,8 @@ def chunk_documents(documents: List[Document], chunk_size: int = 1000, chunk_ove
 
     # The recursive splitter is the 'gold standard' for general text
     splitter = RecursiveCharacterTextSplitter(
-        chunk_size=chunk_size,
-        chunk_overlap=chunk_overlap,
+        chunk_size=CHUNK_SIZE,
+        chunk_overlap=CHUNK_OVERLAP,
         separators=["\n\n", "\n", " ", ""],
         add_start_index=True  # helps with citations later,
     )
@@ -33,9 +35,12 @@ if __name__ == "__main__":
     from src.ingestion.pdf_loader import load_pdf_elements
     import os
 
-    test_path = "data/raw/sample_research.pdf"
+    file_name= "sample_research.pdf"
+    test_path = str(RAW_DATA_DIR / file_name)
     if os.path.exists(test_path):
         docs = load_pdf_elements(test_path)
         if docs:
             final_chunks = chunk_documents(docs)
             print(f"Example Chunk 1: {final_chunks[0].page_content[:200]}")
+    else:
+        raise FileNotFoundError(f"PDF file not found at: {test_path}")
