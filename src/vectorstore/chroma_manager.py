@@ -57,7 +57,7 @@ if __name__ == "__main__":
     TEST_FILENAME = "sample_research.pdf"
     TEST_PDF_PATH = RAW_DATA_DIR / TEST_FILENAME
 
-    # SENIOR MOVE: Use the Path object from config to check existence
+    # Use the Path object from config to check existence
     if VECTOR_DB_DIR.exists() and any(VECTOR_DB_DIR.iterdir()):
         print("--- [Test] Vector DB found. Loading existing store. ---")
         db = get_vector_store()
