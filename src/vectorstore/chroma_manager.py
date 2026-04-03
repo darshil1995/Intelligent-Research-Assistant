@@ -29,6 +29,8 @@ def get_vector_store(chunks: List[Document] = None, persist_directory: str = str
     # 3. Decision Logic: Create New vs. Load Existing
     if chunks:
         print(f"--- [VectorStore] Creating NEW store at: {persist_directory} ---")
+
+        # This removes dictionaries/lists from metadata. It keeps only strings, ints, floats, and bools.
         sanitized_chunks = filter_complex_metadata(chunks)
 
         vector_db = Chroma.from_documents(
