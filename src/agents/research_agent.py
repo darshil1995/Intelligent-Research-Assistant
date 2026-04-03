@@ -14,37 +14,41 @@ def format_docs(docs):
 
 def get_rag_chain():
     """
-    Creates a RAG Chain using LCEL (LangChain Expression Language).
-    Logic: Retrieve -> Contextualize -> Generate
-    """
-
-    # 1. Initialize the Brain (LLM)
+        Creates a RAG Chain using LCEL (LangChain Expression Language).
+        Logic: Retrieve -> Contextualize -> Generate
+        And Upgraded RAG Chain with Strict Guardrails and Temperature Control.
+        """
+    # 1. Temperature=0 ensures the most deterministic/least 'creative' response
     llm = ChatOpenAI(model=LLM_MODEL, temperature=0)
 
-    # 2. Initialize the Memory (Retriever)
     vector_db = get_vector_store()
     retriever = vector_db.as_retriever(search_kwargs={"k": VECTOR_SEARCH_TOP_K})
 
-    # 3. Design the Prompt (The Instructions)
+    # 2. THE UPGRADED PROMPT: Notice the negative constraints and formatting rules
     template = """
-    You are a Senior Research Assistant. Use the provided pieces of retrieved context 
-    to answer the user's question. 
+    SYSTEM INSTRUCTIONS:
+    You are a professional Technical Research Assistant. Your goal is to provide 
+    accurate, fact-based answers derived EXCLUSIVELY from the provided context.
 
-    If you don't know the answer based on the context, just say that you don't know. 
-    Keep the answer concise and professional.
+    RULES:
+    1. Use ONLY the provided context to answer. 
+    2. If the answer is not contained within the context, state: "I'm sorry, but the 
+       provided documents do not contain information regarding this query."
+    3. Do NOT use outside knowledge or "hallucinate" details.
+    4. Maintain a formal, objective tone.
 
-    Context:
+    CONTEXT:
     {context}
 
-    Question: 
+    USER QUESTION: 
     {question}
 
-    Answer:
+    FINAL ANSWER:
     """
+
     prompt = ChatPromptTemplate.from_template(template)
 
-    # 4. The Chain (LCEL)
-    # This says:
+    # 3. The Chain (LCEL)
     # a) Take the question, find context via retriever.
     # b) Pass both to the prompt.
     # c) Pass prompt to LLM.
@@ -58,13 +62,12 @@ def get_rag_chain():
 
     return rag_chain
 
-
 if __name__ == "__main__":
     # Test the Brain!
     print("---Initializing RAG Chain ---")
     chain = get_rag_chain()
 
-    user_query = "What is this simulation about?"
+    user_query = "What is capital of Canada?"
     print(f"\nUser: {user_query}")
 
     response = chain.invoke(user_query)
