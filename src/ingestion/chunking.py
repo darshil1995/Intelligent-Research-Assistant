@@ -11,8 +11,6 @@ def chunk_documents(documents: List[Document]) -> List[Document]:
 
     Args:
         documents: List of Document objects from the loader.
-        chunk_size: Maximum characters per chunk.
-        chunk_overlap: Number of characters to overlap between chunks
     """
     print(f"---Chunking {len(documents)} document elements ---")
 
