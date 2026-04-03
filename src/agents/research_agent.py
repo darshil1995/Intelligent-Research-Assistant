@@ -4,15 +4,25 @@ from langchain_core.output_parsers import StrOutputParser
 from langchain_core.runnables import RunnablePassthrough
 
 from src.utils.config import LLM_MODEL, VECTOR_SEARCH_TOP_K
+from src.utils.token_counter import validate_context_budget
 from src.vectorstore.chroma_manager import get_vector_store
 from src.utils.logger import get_logger
 
 logger = get_logger(__name__)
 
 def format_docs(docs):
-    """Combine the content of retrieved documents into a single string."""
+    """
+        Combine the content of retrieved documents into a single string
+        and validate the token budget of retrieved documents.
+    """
     logger.info(f"Retriever found {len(docs)} relevant chunks from the Vector Store.")
-    return "\n\n".join(doc.page_content for doc in docs)
+    combined_text = "\n\n".join(doc.page_content for doc in docs)
+
+    # Budgeting the context before sending to LLM
+    final_context = validate_context_budget(combined_text, limit=2000)
+    logger.info(f"Final context formatted and validated.")
+
+    return final_context
 
 
 def get_rag_chain():
