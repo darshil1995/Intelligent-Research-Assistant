@@ -1,14 +1,18 @@
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
-from src.utils.config import LLM_MODEL
 
+from src.utils.config import LLM_MODEL
+from src.utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 def evaluate_faithfulness(question, context, answer):
     """
     Using an LLM as a judge to check for hallucinations.
     This is a simplified version of what frameworks like RAGAS do.
     """
+    logger.info("--- Evaluating Faithfulness ---")
     llm = ChatOpenAI(model=LLM_MODEL, temperature=0)
 
     template = """

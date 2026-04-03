@@ -2,8 +2,11 @@ import os
 from typing import List
 from langchain_community.document_loaders import UnstructuredPDFLoader
 from langchain_core.documents import Document
-from src.utils.config import RAW_DATA_DIR
 
+from src.utils.config import RAW_DATA_DIR
+from src.utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 def load_pdf_elements(file_name: str) -> List[Document]:
     """
@@ -15,13 +18,13 @@ def load_pdf_elements(file_name: str) -> List[Document]:
     2. It handles multi-column layouts using NLP-based partitioning.
     3. It captures metadata (source, page numbers) automatically.
     """
-
+    logger.info(f"--- Loading Pdf Elements ---")
     file_path = str(RAW_DATA_DIR / file_name)
 
     if not os.path.exists(file_path):
         raise FileNotFoundError(f"PDF file not found at: {file_path}")
 
-    print(f"--- Extracting elements from: {os.path.basename(file_path)} ---")
+    logger.info(f"--- Extracting elements from: {os.path.basename(file_path)} ---")
 
     try:
         # 'elements' mode treats each paragraph/table as a separate Document object
@@ -33,11 +36,11 @@ def load_pdf_elements(file_name: str) -> List[Document]:
         )
 
         docs = loader.load()
-        print(f" Extraction Complete: {len(docs)} elements found.")
+        logger.info(f" Extraction Complete: {len(docs)} elements found.")
         return docs
 
     except Exception as e:
-        print(f" Error during PDF extraction: {e}")
+        logger.error(f" Error during PDF extraction: {e}")
         return []
 
 

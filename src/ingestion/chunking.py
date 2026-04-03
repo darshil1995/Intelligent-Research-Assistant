@@ -3,7 +3,9 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_core.documents import Document
 
 from src.utils.config import CHUNK_SIZE, CHUNK_OVERLAP, RAW_DATA_DIR
+from src.utils.logger import get_logger
 
+logger = get_logger(__name__)
 
 def chunk_documents(documents: List[Document]) -> List[Document]:
     """
@@ -12,7 +14,7 @@ def chunk_documents(documents: List[Document]) -> List[Document]:
     Args:
         documents: List of Document objects from the loader.
     """
-    print(f"---Chunking {len(documents)} document elements ---")
+    logger.info(f"Chunking {len(documents)} document elements")
 
     # The recursive splitter is the 'gold standard' for general text
     splitter = RecursiveCharacterTextSplitter(
@@ -24,7 +26,7 @@ def chunk_documents(documents: List[Document]) -> List[Document]:
 
     chunks = splitter.split_documents(documents)
 
-    print(f"Chunking Complete: Created {len(chunks)} chunks.")
+    logger.info(f"Chunking Complete: Created {len(chunks)} chunks.")
     return chunks
 
 
@@ -41,4 +43,7 @@ if __name__ == "__main__":
             final_chunks = chunk_documents(docs)
             print(f"Example Chunk 1: {final_chunks[0].page_content[:200]}")
     else:
-        raise FileNotFoundError(f"PDF file not found at: {test_path}")
+        raise (
+            logger.error(f"PDF file not found at: {test_path}"),
+            FileNotFoundError(f"PDF file not found at: {test_path}")
+        )

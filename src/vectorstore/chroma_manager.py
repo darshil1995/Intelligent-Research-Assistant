@@ -12,12 +12,16 @@ from src.utils.config import (
     OPENAI_API_KEY,
     RAW_DATA_DIR
 )
+from src.utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 def get_vector_store(chunks: List[Document] = None, persist_directory: str = str(VECTOR_DB_DIR)):
     """
     Creates a new Vector Store or loads an existing one.
     Refactored to use centralized project configurations.
     """
+    logger.info("--- Vector Store Initialization ---")
 
     # 1. Verify API Key using config variable
     if not OPENAI_API_KEY:
@@ -28,7 +32,7 @@ def get_vector_store(chunks: List[Document] = None, persist_directory: str = str
 
     # 3. Decision Logic: Create New vs. Load Existing
     if chunks:
-        print(f"--- [VectorStore] Creating NEW store at: {persist_directory} ---")
+        logger.info(f"--- [VectorStore] Creating NEW store at: {persist_directory} ---")
 
         # This removes dictionaries/lists from metadata. It keeps only strings, ints, floats, and bools.
         sanitized_chunks = filter_complex_metadata(chunks)
@@ -38,13 +42,13 @@ def get_vector_store(chunks: List[Document] = None, persist_directory: str = str
             embedding=embeddings,
             persist_directory=persist_directory
         )
-        print(f"Successfully indexed {len(chunks)} chunks.")
+        logger.info(f"Successfully indexed {len(chunks)} chunks.")
     else:
         # Check if directory exists using config logic
         if not os.path.exists(persist_directory):
-            print(f"Warning: {persist_directory} does not exist. Creating empty store.")
+            logger.info(f"Warning: {persist_directory} does not exist. Creating empty store.")
 
-        print(f"--- [VectorStore] Loading EXISTING store from: {persist_directory} ---")
+        logger.info(f"--- [VectorStore] Loading EXISTING store from: {persist_directory} ---")
         vector_db = Chroma(
             persist_directory=persist_directory,
             embedding_function=embeddings

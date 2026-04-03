@@ -5,10 +5,13 @@ from langchain_core.runnables import RunnablePassthrough
 
 from src.utils.config import LLM_MODEL, VECTOR_SEARCH_TOP_K
 from src.vectorstore.chroma_manager import get_vector_store
+from src.utils.logger import get_logger
 
+logger = get_logger(__name__)
 
 def format_docs(docs):
     """Combine the content of retrieved documents into a single string."""
+    logger.info(f"Retriever found {len(docs)} relevant chunks from the Vector Store.")
     return "\n\n".join(doc.page_content for doc in docs)
 
 
@@ -18,11 +21,17 @@ def get_rag_chain():
         Logic: Retrieve -> Contextualize -> Generate
         And Upgraded RAG Chain with Strict Guardrails and Temperature Control.
         """
-    # 1. Temperature=0 ensures the most deterministic/least 'creative' response
-    llm = ChatOpenAI(model=LLM_MODEL, temperature=0)
+    logger.info(f"Initializing RAG Chain using model: {LLM_MODEL}")
+    try:
+        # 1. Temperature=0 ensures the most deterministic/least 'creative' response
+        llm = ChatOpenAI(model=LLM_MODEL, temperature=0)
 
-    vector_db = get_vector_store()
-    retriever = vector_db.as_retriever(search_kwargs={"k": VECTOR_SEARCH_TOP_K})
+        vector_db = get_vector_store()
+        retriever = vector_db.as_retriever(search_kwargs={"k": VECTOR_SEARCH_TOP_K})
+    except Exception as e:
+        logger.error(f"Failed to initialize RAG components: {e}")
+        raise
+
 
     # 2. THE INTEGRATED CHAIN OF THOUGHT PROMPT
     template = """
@@ -67,15 +76,24 @@ def get_rag_chain():
             | StrOutputParser()
     )
 
+    logger.info("RAG Chain successfully constructed.")
     return rag_chain
 
 if __name__ == "__main__":
     # Test the Brain!
-    print("---Initializing RAG Chain ---")
-    chain = get_rag_chain()
+    logger.info("--- Starting Research Agent Test Run ---")
+    try:
+        chain = get_rag_chain()
+        query = "What is the main objective of the research regarding Web-based systems?"
 
-    user_query = "How does the simulation handle capacity planning in Web-based systems?"
-    print(f"\nUser: {user_query}")
+        logger.info(f"Invoking chain with query: '{query}'")
+        response = chain.invoke(query)
 
-    response = chain.invoke(user_query)
-    print(f"\nAI: {response}")
+        print("\n" + "=" * 30)
+        print("🤖 AI ASSISTANT RESPONSE")
+        print("=" * 30)
+        print(response)
+        print("=" * 30 + "\n")
+
+    except Exception as e:
+        logger.error(f"Critical error during agent execution: {e}")
