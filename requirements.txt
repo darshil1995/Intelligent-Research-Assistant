@@ -3,3 +3,4 @@ langchain-core>=1.2.22
 langchain-text-splitters>=1.1.1
 langchain-openai>=1.1.12
 python-dotenv>=1.2.2
+tiktoken>=0.12.0
