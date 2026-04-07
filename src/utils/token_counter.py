@@ -26,7 +26,7 @@ def validate_context_budget(context: str, limit: int = 3000):
     tokens = count_tokens(context)
     if tokens > limit:
         logger.warning(f"Context exceeds budget ({tokens}/{limit} tokens). Truncating...")
-        # Simple truncation logic (Senior note: In production, use smarter pruning)
+        # Simple truncation logic (note: In production, use smarter pruning)
         return context[:limit * 4]  # Rough character estimate
 
     logger.info(f"Context within budget: {tokens} tokens.")
