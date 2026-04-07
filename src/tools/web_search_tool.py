@@ -17,5 +17,5 @@ def get_web_search_tool():
 
     logger.info("Initializing high-performance TavilySearch tool.")
 
-    # In 2026, TavilySearch uses 'max_results' (equivalent to 'k')
+    # TavilySearch uses 'max_results' (equivalent to 'k')
     return TavilySearch(max_results=VECTOR_SEARCH_TOP_K, topic="general")
