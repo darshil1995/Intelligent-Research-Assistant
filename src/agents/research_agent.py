@@ -9,10 +9,40 @@ from src.vectorstore.chroma_manager import get_vector_store
 from src.utils.logger import get_logger
 from src.utils.reranker import DocumentReranker
 
-# Initialize the reranker once
+from langsmith import Client
+# Components moved to langchain-classic for stability
+from langchain_classic.agents import AgentExecutor
+from langchain_classic.agents import create_openai_functions_agent
+from langchain_openai import ChatOpenAI
+from src.utils.web_search import get_web_search_tool
+
+
 reranker = DocumentReranker()
 
 logger = get_logger(__name__)
+
+
+def get_agent_executor():
+    llm = ChatOpenAI(model=LLM_MODEL, temperature=0)
+
+    # 2026 standard: Use LangSmith Client for prompts
+    client = Client()
+    # Pull the specialized Prompt for Tool-Use
+    prompt = client.pull_prompt("hwchase17/openai-functions-agent")
+
+    # Define Tools
+    search_tool = get_web_search_tool()
+    tools = [search_tool] if search_tool else []
+
+    # Use the classic creator from the new import path
+    agent = create_openai_functions_agent(llm, tools, prompt)
+
+    return AgentExecutor(
+        agent=agent,
+        tools=tools,
+        verbose=True,
+        handle_parsing_errors=True
+    )
 
 def format_docs(docs):
     """

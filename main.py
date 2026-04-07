@@ -3,7 +3,7 @@ from src.utils.logger import get_logger
 from src.ingestion.pdf_loader import load_specific_pdfs
 from src.ingestion.chunking import chunk_documents
 from src.vectorstore.chroma_manager import add_to_vector_store
-from src.agents.research_agent import get_rag_chain
+from src.agents.research_agent import get_rag_chain, get_agent_executor
 
 # Initialize logger for the main entry point
 logger = get_logger(__name__)
@@ -36,15 +36,15 @@ def process_new_uploads(file_paths: list):
 
 def run_research_assistant():
     """
-    Main loop to simulate a user session.
+    Main loop to simulate an Agentic user session.
     """
-    logger.info("--- Research Assistant Active ---")
+    logger.info("--- Agentic Research Assistant Active ---")
 
-    # Initialize the Brain
-    chain = get_rag_chain()
+    # 1. Initialize the Agent Executor instead of a simple chain
+    agent_executor = get_agent_executor()
 
     print("\n" + "=" * 50)
-    print("INTELLIGENT RESEARCH ASSISTANT")
+    print("🤖 INTELLIGENT AGENTIC ASSISTANT (WEEK 3)")
     print("=" * 50)
     print("Type 'exit' to quit or 'upload' to add new files.")
 
@@ -55,7 +55,6 @@ def run_research_assistant():
             break
 
         elif user_input.lower() == 'upload':
-            # Simulation: In a real app, this would be a file picker
             path = input("Enter the full path to the PDF: ").strip()
             if os.path.exists(path):
                 process_new_uploads([path])
@@ -63,17 +62,25 @@ def run_research_assistant():
                 print("Invalid path. Please try again.")
             continue
 
-        # Standard RAG Query
+        # 2. Agentic Query Handling
         try:
             logger.info(f"User Query: {user_input}")
 
-            response = chain.invoke({"question": user_input})
+            # IMPORTANT: The AgentExecutor expects the key "input"
+            # instead of "question" based on the Hub prompt schema.
+            response = agent_executor.invoke({"input": user_input})
 
-            print(f"\n{response}")
+            # The response from an AgentExecutor is a dict;
+            # the actual text is in the "output" key.
+            print(f"\n{response['output']}")
+
         except Exception as e:
-            # This is where the 'string indices' error was being caught
-            logger.error(f"Error processing query: {e}")
+            logger.error(f"Error processing agent query: {e}")
             print("I encountered an error while researching that.")
+
+
+if __name__ == "__main__":
+    run_research_assistant()
 
 
 if __name__ == "__main__":
