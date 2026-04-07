@@ -50,7 +50,6 @@ def get_agent_executor():
 
     tools = [pdf_tool, web_tool]
 
-    # ... rest of the function (client, prompt, agent) stays the same ...
     client = Client()
     prompt = client.pull_prompt("hwchase17/openai-functions-agent")
     agent = create_openai_functions_agent(llm, tools, prompt)

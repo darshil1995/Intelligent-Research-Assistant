@@ -111,9 +111,3 @@ def run_research_assistant():
 
 if __name__ == "__main__":
     run_research_assistant()
-
-
-if __name__ == "__main__":
-    # Optional: Pre-load the sample if the DB is empty
-    # You can customize this to automatically index the 'raw' folder on first boot
-    run_research_assistant()
