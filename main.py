@@ -1,9 +1,12 @@
 import os
+import asyncio
+
+from src.evaluation.evaluator import run_eval_experiment
 from src.utils.logger import get_logger
 from src.ingestion.pdf_loader import load_specific_pdfs
 from src.ingestion.chunking import chunk_documents
 from src.vectorstore.chroma_manager import add_to_vector_store
-from src.agents.research_agent import get_rag_chain, get_agent_executor
+from src.agents.research_agent import get_agent_executor
 
 # Initialize logger for the main entry point
 logger = get_logger(__name__)
@@ -58,6 +61,8 @@ def run_research_assistant():
             path = input("Enter the full path to the PDF: ").strip()
             if os.path.exists(path):
                 process_new_uploads([path])
+                # Re-initialize the agent to pick up the new vector store state if needed
+                agent_executor = get_agent_executor()
             else:
                 print("Invalid path. Please try again.")
             continue
@@ -68,15 +73,40 @@ def run_research_assistant():
 
             # IMPORTANT: The AgentExecutor expects the key "input"
             # instead of "question" based on the Hub prompt schema.
-            response = agent_executor.invoke({"input": user_input})
+            response_dict = agent_executor.invoke({"input": user_input})
 
-            # The response from an AgentExecutor is a dict;
-            # the actual text is in the "output" key.
-            print(f"\n{response['output']}")
+            # Extract the data needed for RAGAS
+            answer = response_dict["output"]
+            print(f"\nAnswer: {answer}")
+
+            # 3. EXTRACT RETRIEVED CONTEXTS
+            # We look through 'intermediate_steps' which is a list of (AgentAction, ToolOutput)
+            retrieved_contexts = []
+            if "intermediate_steps" in response_dict:
+                for action, tool_output in response_dict["intermediate_steps"]:
+                    # If the agent used our RAG tool, the output is the combined context string
+                    if action.tool == "PDF_Research_Search":
+                        # RAGAS expects a list of strings, so we split our combined text
+                        retrieved_contexts.extend(tool_output.split("\n\n"))
+
+            # 4. Trigger Evaluation if we have context
+            if retrieved_contexts:
+                print("📊 Calculating Quality Scores...")
+                # asyncio.run handles the coroutine and returns the dict
+                scores = asyncio.run(run_eval_experiment(user_input, answer, retrieved_contexts))
+
+                print("\n" + "=" * 30)
+                print("RAGAS EVALUATION METRICS")
+                print("=" * 30)
+                # Access the dictionary keys directly
+                print(f"Faithfulness:   {scores.get('faithfulness', 0):.2f}")
+                print(f"Answer Relevancy: {scores.get('answer_relevancy', 0):.2f}")
+                print("=" * 30)
+            else:
+                print("No local context retrieved.")
 
         except Exception as e:
-            logger.error(f"Error processing agent query: {e}")
-            print("I encountered an error while researching that.")
+            logger.error(f"Error: {e}")
 
 
 if __name__ == "__main__":

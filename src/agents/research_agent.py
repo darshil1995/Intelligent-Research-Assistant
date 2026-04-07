@@ -1,164 +1,84 @@
+from langsmith import Client
+from langchain_classic.agents import AgentExecutor, create_openai_functions_agent
 from langchain_openai import ChatOpenAI
-from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.output_parsers import StrOutputParser
-from langchain_core.runnables import RunnablePassthrough
 
 from src.utils.config import LLM_MODEL, VECTOR_SEARCH_TOP_K
 from src.utils.token_counter import validate_context_budget
 from src.vectorstore.chroma_manager import get_vector_store
 from src.utils.logger import get_logger
 from src.utils.reranker import DocumentReranker
+from src.tools.web_search_tool import get_web_search_tool
+from src.tools.pdf_tool import get_pdf_search_tool
 
-from langsmith import Client
-# Components moved to langchain-classic for stability
-from langchain_classic.agents import AgentExecutor
-from langchain_classic.agents import create_openai_functions_agent
-from langchain_openai import ChatOpenAI
-from src.utils.web_search import get_web_search_tool
-
-
+# Initialize the reranker once
 reranker = DocumentReranker()
-
 logger = get_logger(__name__)
 
 
+def format_docs(docs):
+    """Combines and validates the token budget of retrieved documents."""
+    combined_text = "\n\n".join(doc.page_content for doc in docs)
+    final_context = validate_context_budget(combined_text, limit=2000)
+    return final_context
+
+
+def rerank_context(input_data):
+    """The 2-Stage Retrieval Logic (Tool Function)."""
+    query = input_data["question"]
+    vector_db = get_vector_store()
+    retriever = vector_db.as_retriever(search_kwargs={"k": VECTOR_SEARCH_TOP_K})
+
+    logger.info(f"--- [Stage 1] Retrieving candidates for: {query} ---")
+    initial_docs = retriever.invoke(query)
+
+    logger.info("--- [Stage 2] Reranking for Precision ---")
+    final_docs = reranker.rerank(query, initial_docs, top_n=5)
+
+    return format_docs(final_docs)
+
+
 def get_agent_executor():
+    """Builds the Multi-Tool Reasoning Agent."""
+    logger.info(f"Initializing Agentic System using: {LLM_MODEL}")
+
     llm = ChatOpenAI(model=LLM_MODEL, temperature=0)
 
-    # 2026 standard: Use LangSmith Client for prompts
+    # 1. Setup the Toolset
+    # Pass 'rerank_context' as the function to be used by the tool
+    pdf_tool = get_pdf_search_tool(rerank_context)
+    web_tool = get_web_search_tool()
+
+    tools = [pdf_tool, web_tool]
+
+    # ... rest of the function (client, prompt, agent) stays the same ...
     client = Client()
-    # Pull the specialized Prompt for Tool-Use
     prompt = client.pull_prompt("hwchase17/openai-functions-agent")
-
-    # Define Tools
-    search_tool = get_web_search_tool()
-    tools = [search_tool] if search_tool else []
-
-    # Use the classic creator from the new import path
     agent = create_openai_functions_agent(llm, tools, prompt)
 
     return AgentExecutor(
         agent=agent,
         tools=tools,
         verbose=True,
-        handle_parsing_errors=True
+        handle_parsing_errors=True,
+        return_intermediate_steps=True  # CRITICAL: This captures the RAG output
     )
 
-def format_docs(docs):
-    """
-        Combine the content of retrieved documents into a single string
-        and validate the token budget of retrieved documents.
-    """
-
-    for i, doc in enumerate(docs):
-        logger.info(f"Chunk {i + 1} content: {doc.page_content[:100]}...")  # See the first 100 chars
-
-    logger.info(f"Retriever found {len(docs)} relevant chunks from the Vector Store.")
-    combined_text = "\n\n".join(doc.page_content for doc in docs)
-    # Budgeting the context before sending to LLM
-    final_context = validate_context_budget(combined_text, limit=2000)
-    logger.info(f"Final context formatted and validated.")
-
-    return final_context
-
-
-# ... (imports stay the same)
-
-# 1. Update the function signature to only take input_data
-def rerank_context(input_data):
-    query = input_data["question"]
-
-    vector_db = get_vector_store()
-    # High Recall: fetch 15 candidates
-    retriever = vector_db.as_retriever(search_kwargs={"k": VECTOR_SEARCH_TOP_K})
-
-    logger.info(f"--- [Stage 1] Retrieving top 15 candidates for: {query} ---")
-    initial_docs = retriever.invoke(query)
-
-    # Log the first 3 raw matches to see if 'References' are present
-    for i, doc in enumerate(initial_docs[:3]):
-        logger.info(f"Raw Match {i + 1}: {doc.page_content[:50]}...")
-
-    # 2. Stage 2: Reranking (Precision)
-    logger.info("--- [Stage 2] Reranking candidates for relevance ---")
-    final_docs = reranker.rerank(query, initial_docs, top_n=5)
-
-    # Log the new top 3 to see if the order changed
-    for i, doc in enumerate(final_docs[:3]):
-        logger.info(
-            f"Reranked Match {i + 1} (Score: {doc.metadata.get('rerank_score', 0):.4f}): {doc.page_content[:50]}...")
-
-    return format_docs(final_docs)
-
-
-def get_rag_chain():
-    logger.info(f"Initializing RAG Chain using model: {LLM_MODEL}")
-
-    # Notice we don't need to define retriever here anymore
-    # since rerank_context handles its own retrieval stage.
-    llm = ChatOpenAI(model=LLM_MODEL, temperature=0)
-
-    template = """
-            SYSTEM INSTRUCTIONS:
-            You are a Senior Technical Research Assistant. Your goal is to provide 
-            accurate, fact-based answers derived EXCLUSIVELY from the provided context.
-            You must follow a structured reasoning process to eliminate hallucinations.
-
-            RULES:
-            1. Use ONLY the provided context to answer. Do NOT use outside knowledge.
-            2. If the answer is not in the context, state: "I'm sorry, but the provided 
-               documents do not contain information regarding this query."
-            3. Maintain a formal, objective, and professional tone.
-            4. You must provide a 'THOUGHT' section followed by a 'FINAL ANSWER' section.
-
-            YOUR PROCESS:
-            1. THOUGHT: Analyze the user's question and identify the specific facts 
-               needed from the context. Note which parts of the retrieved data are relevant.
-            2. FINAL ANSWER: Provide the concise answer based ONLY on the thought process 
-               and retrieved context above.
-
-            CONTEXT:
-            {context}
-
-            USER QUESTION: 
-            {question}
-
-            YOUR RESPONSE (Following the THOUGHT/FINAL ANSWER format):
-            """
-
-    prompt = ChatPromptTemplate.from_template(template)
-
-    # 3. The Chain (LCEL)
-    rag_chain = (
-        # input_data is passed automatically to rerank_context
-            RunnablePassthrough.assign(
-                context=lambda x: rerank_context(x)
-            )
-         #   {"context": rerank_context, "question": RunnablePassthrough()}
-            | prompt
-            | llm
-            | StrOutputParser()
-    )
-
-    logger.info("RAG Chain successfully constructed.")
-    return rag_chain
 
 if __name__ == "__main__":
-    # Test the Brain!
     logger.info("--- Starting Research Agent Test Run ---")
     try:
-        chain = get_rag_chain()
+        agent_executor = get_agent_executor()
         query = "What is the main objective of the research regarding Web-based systems?"
 
-        logger.info(f"Invoking chain with query: '{query}'")
+        # Log BEFORE the long-running process
+        logger.info(f"Invoking agent with query: '{query}'")
 
-        # CHANGE THIS LINE TOO:
-        response = chain.invoke({"question": query})
+        response = agent_executor.invoke({"input": query})
 
         print("\n" + "=" * 30)
         print("AI ASSISTANT RESPONSE")
         print("=" * 30)
-        print(response)
+        print(response['output'])
         print("=" * 30 + "\n")
 
     except Exception as e:

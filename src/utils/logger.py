@@ -18,9 +18,9 @@ def get_logger(name: str):
     if not logger.handlers:
         logger.setLevel(logging.INFO)
 
-        # 1. Format: [Timestamp] [Level] [File:Line] - Message
+        # Format: [Timestamp] [Level] [Module] [Function] - Message
         formatter = logging.Formatter(
-            '%(asctime)s - %(levelname)s - [%(name)s:%(lineno)d] - %(message)s',
+            '%(asctime)s - %(levelname)s - [%(name)s.%(funcName)s:%(lineno)d] - %(message)s',
             datefmt='%Y-%m-%d %H:%M:%S'
         )
 

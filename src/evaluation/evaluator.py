@@ -1,46 +1,40 @@
-from langchain_openai import ChatOpenAI
-from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.output_parsers import StrOutputParser
-
-from src.utils.config import LLM_MODEL
+from ragas.metrics import Faithfulness, AnswerRelevancy
+from ragas.dataset_schema import SingleTurnSample
+from ragas.llms import LangchainLLMWrapper
+from ragas.embeddings import LangchainEmbeddingsWrapper  # NEW IMPORT
+from langchain_openai import ChatOpenAI, OpenAIEmbeddings  # Added OpenAIEmbeddings
 from src.utils.logger import get_logger
+from src.utils.config import LLM_MODEL
 
 logger = get_logger(__name__)
 
-def evaluate_faithfulness(question, context, answer):
+# 1. Initialize the Judge LLM and Embeddings
+evaluator_llm = LangchainLLMWrapper(ChatOpenAI(model=LLM_MODEL))
+# Use the same embedding model as your Vector Store for consistency
+evaluator_embeddings = LangchainEmbeddingsWrapper(OpenAIEmbeddings())
+
+# 2. Initialize metrics with BOTH LLM and Embeddings attached
+faithfulness = Faithfulness(llm=evaluator_llm)
+relevancy = AnswerRelevancy(llm=evaluator_llm, embeddings=evaluator_embeddings)
+
+
+async def run_eval_experiment(query: str, response: str, contexts: list):
     """
-    Using an LLM as a judge to check for hallucinations.
-    This is a simplified version of what frameworks like RAGAS do.
+    Evaluates a live response with an explicitly configured LLM judge.
     """
-    logger.info("--- Evaluating Faithfulness ---")
-    llm = ChatOpenAI(model=LLM_MODEL, temperature=0)
+    sample = SingleTurnSample(
+        user_input=query,
+        response=response,
+        retrieved_contexts=contexts
+    )
 
-    template = """
-    You are an expert Grader. Your goal is to check if an AI's answer is FAITHFUL to the provided context.
+    logger.info("--- Computing Ragas Scores (Faithfulness & Relevancy) ---")
 
-    Rules:
-    1. If the answer contains information NOT present in the context, it is a hallucination.
-    2. Give a score from 0 to 10 (10 being perfectly faithful).
-    3. Provide a 1-sentence reason for your score.
+    # Use the async method appropriate for your 2026 build
+    f_score = await faithfulness.single_turn_ascore(sample)
+    r_score = await relevancy.single_turn_ascore(sample)
 
-    Context: {context}
-    Answer: {answer}
-
-    Score and Reason:
-    """
-
-    prompt = ChatPromptTemplate.from_template(template)
-    chain = prompt | llm | StrOutputParser()
-
-    return chain.invoke({"context": context, "answer": answer})
-
-
-if __name__ == "__main__":
-    # Example Test Case
-    mock_context = "The company's revenue in 2023 was $50 million."
-    mock_answer = "The company made $50 million in 2023 and is planning to double it in 2024."
-
-    print("---Running Faithfulness Evaluation ---")
-    result = evaluate_faithfulness("What was the revenue?", mock_context, mock_answer)
-    print(f"Evaluation Result: {result}")
-    # Note: It should score lower because the '2024' part is not in the context!
+    return {
+        "faithfulness": f_score,
+        "answer_relevancy": r_score
+    }
