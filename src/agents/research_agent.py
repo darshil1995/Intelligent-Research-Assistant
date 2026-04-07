@@ -7,6 +7,10 @@ from src.utils.config import LLM_MODEL, VECTOR_SEARCH_TOP_K
 from src.utils.token_counter import validate_context_budget
 from src.vectorstore.chroma_manager import get_vector_store
 from src.utils.logger import get_logger
+from src.utils.reranker import DocumentReranker
+
+# Initialize the reranker once
+reranker = DocumentReranker()
 
 logger = get_logger(__name__)
 
@@ -28,62 +32,79 @@ def format_docs(docs):
     return final_context
 
 
+# ... (imports stay the same)
+
+# 1. Update the function signature to only take input_data
+def rerank_context(input_data):
+    query = input_data["question"]
+
+    vector_db = get_vector_store()
+    # High Recall: fetch 15 candidates
+    retriever = vector_db.as_retriever(search_kwargs={"k": VECTOR_SEARCH_TOP_K})
+
+    logger.info(f"--- [Stage 1] Retrieving top 15 candidates for: {query} ---")
+    initial_docs = retriever.invoke(query)
+
+    # Log the first 3 raw matches to see if 'References' are present
+    for i, doc in enumerate(initial_docs[:3]):
+        logger.info(f"Raw Match {i + 1}: {doc.page_content[:50]}...")
+
+    # 2. Stage 2: Reranking (Precision)
+    logger.info("--- [Stage 2] Reranking candidates for relevance ---")
+    final_docs = reranker.rerank(query, initial_docs, top_n=5)
+
+    # Log the new top 3 to see if the order changed
+    for i, doc in enumerate(final_docs[:3]):
+        logger.info(
+            f"Reranked Match {i + 1} (Score: {doc.metadata.get('rerank_score', 0):.4f}): {doc.page_content[:50]}...")
+
+    return format_docs(final_docs)
+
+
 def get_rag_chain():
-    """
-        Creates a RAG Chain using LCEL (LangChain Expression Language).
-        Logic: Retrieve -> Contextualize -> Generate
-        And Upgraded RAG Chain with Strict Guardrails and Temperature Control.
-        """
     logger.info(f"Initializing RAG Chain using model: {LLM_MODEL}")
-    try:
-        # 1. Temperature=0 ensures the most deterministic/least 'creative' response
-        llm = ChatOpenAI(model=LLM_MODEL, temperature=0)
 
-        vector_db = get_vector_store()
-        retriever = vector_db.as_retriever(search_kwargs={"k": VECTOR_SEARCH_TOP_K})
-    except Exception as e:
-        logger.error(f"Failed to initialize RAG components: {e}")
-        raise
+    # Notice we don't need to define retriever here anymore
+    # since rerank_context handles its own retrieval stage.
+    llm = ChatOpenAI(model=LLM_MODEL, temperature=0)
 
-
-    # 2. THE INTEGRATED CHAIN OF THOUGHT PROMPT
     template = """
-        SYSTEM INSTRUCTIONS:
-        You are a Senior Technical Research Assistant. Your goal is to provide 
-        accurate, fact-based answers derived EXCLUSIVELY from the provided context.
-        You must follow a structured reasoning process to eliminate hallucinations.
+            SYSTEM INSTRUCTIONS:
+            You are a Senior Technical Research Assistant. Your goal is to provide 
+            accurate, fact-based answers derived EXCLUSIVELY from the provided context.
+            You must follow a structured reasoning process to eliminate hallucinations.
 
-        RULES:
-        1. Use ONLY the provided context to answer. Do NOT use outside knowledge.
-        2. If the answer is not in the context, state: "I'm sorry, but the provided 
-           documents do not contain information regarding this query."
-        3. Maintain a formal, objective, and professional tone.
-        4. You must provide a 'THOUGHT' section followed by a 'FINAL ANSWER' section.
+            RULES:
+            1. Use ONLY the provided context to answer. Do NOT use outside knowledge.
+            2. If the answer is not in the context, state: "I'm sorry, but the provided 
+               documents do not contain information regarding this query."
+            3. Maintain a formal, objective, and professional tone.
+            4. You must provide a 'THOUGHT' section followed by a 'FINAL ANSWER' section.
 
-        YOUR PROCESS:
-        1. THOUGHT: Analyze the user's question and identify the specific facts 
-           needed from the context. Note which parts of the retrieved data are relevant.
-        2. FINAL ANSWER: Provide the concise answer based ONLY on the thought process 
-           and retrieved context above.
+            YOUR PROCESS:
+            1. THOUGHT: Analyze the user's question and identify the specific facts 
+               needed from the context. Note which parts of the retrieved data are relevant.
+            2. FINAL ANSWER: Provide the concise answer based ONLY on the thought process 
+               and retrieved context above.
 
-        CONTEXT:
-        {context}
+            CONTEXT:
+            {context}
 
-        USER QUESTION: 
-        {question}
+            USER QUESTION: 
+            {question}
 
-        YOUR RESPONSE (Following the THOUGHT/FINAL ANSWER format):
-        """
+            YOUR RESPONSE (Following the THOUGHT/FINAL ANSWER format):
+            """
 
     prompt = ChatPromptTemplate.from_template(template)
 
     # 3. The Chain (LCEL)
-    # a) Take the question, find context via retriever.
-    # b) Pass both to the prompt.
-    # c) Pass prompt to LLM.
-    # d) Parse the result as a string.
     rag_chain = (
-            {"context": retriever | format_docs, "question": RunnablePassthrough()}
+        # input_data is passed automatically to rerank_context
+            RunnablePassthrough.assign(
+                context=lambda x: rerank_context(x)
+            )
+         #   {"context": rerank_context, "question": RunnablePassthrough()}
             | prompt
             | llm
             | StrOutputParser()
@@ -100,10 +121,12 @@ if __name__ == "__main__":
         query = "What is the main objective of the research regarding Web-based systems?"
 
         logger.info(f"Invoking chain with query: '{query}'")
-        response = chain.invoke(query)
+
+        # CHANGE THIS LINE TOO:
+        response = chain.invoke({"question": query})
 
         print("\n" + "=" * 30)
-        print("🤖 AI ASSISTANT RESPONSE")
+        print("AI ASSISTANT RESPONSE")
         print("=" * 30)
         print(response)
         print("=" * 30 + "\n")

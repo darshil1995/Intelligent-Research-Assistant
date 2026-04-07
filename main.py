@@ -44,7 +44,7 @@ def run_research_assistant():
     chain = get_rag_chain()
 
     print("\n" + "=" * 50)
-    print("🤖 INTELLIGENT RESEARCH ASSISTANT")
+    print("INTELLIGENT RESEARCH ASSISTANT")
     print("=" * 50)
     print("Type 'exit' to quit or 'upload' to add new files.")
 
@@ -66,9 +66,12 @@ def run_research_assistant():
         # Standard RAG Query
         try:
             logger.info(f"User Query: {user_input}")
-            response = chain.invoke(user_input)
+
+            response = chain.invoke({"question": user_input})
+
             print(f"\n{response}")
         except Exception as e:
+            # This is where the 'string indices' error was being caught
             logger.error(f"Error processing query: {e}")
             print("I encountered an error while researching that.")
 
