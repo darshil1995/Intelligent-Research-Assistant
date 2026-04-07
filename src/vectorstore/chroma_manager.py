@@ -5,7 +5,7 @@ from langchain_chroma import Chroma
 from langchain_core.documents import Document
 from langchain_community.vectorstores.utils import filter_complex_metadata
 
-# Import our new central config
+# Centralized project configurations
 from src.utils.config import (
     VECTOR_DB_DIR,
     EMBEDDING_MODEL,
@@ -16,75 +16,78 @@ from src.utils.logger import get_logger
 
 logger = get_logger(__name__)
 
-def get_vector_store(chunks: List[Document] = None, persist_directory: str = str(VECTOR_DB_DIR)):
-    """
-    Creates a new Vector Store or loads an existing one.
-    Refactored to use centralized project configurations.
-    """
-    logger.info("--- Vector Store Initialization ---")
 
-    # 1. Verify API Key using config variable
+def get_vector_store(persist_directory: str = str(VECTOR_DB_DIR)):
+    """
+    Returns the existing Vector Store instance.
+    If it doesn't exist, it returns an empty Chroma object tied to the directory.
+    """
     if not OPENAI_API_KEY:
         raise ValueError("OPENAI_API_KEY not found. Please check your .env file.")
 
-    # 2. Setup Embeddings using config model name
     embeddings = OpenAIEmbeddings(model=EMBEDDING_MODEL)
 
-    # 3. Decision Logic: Create New vs. Load Existing
-    if chunks:
-        logger.info(f"--- [VectorStore] Creating NEW store at: {persist_directory} ---")
+    return Chroma(
+        persist_directory=persist_directory,
+        embedding_function=embeddings
+    )
 
-        # This removes dictionaries/lists from metadata. It keeps only strings, ints, floats, and bools.
-        sanitized_chunks = filter_complex_metadata(chunks)
 
-        vector_db = Chroma.from_documents(
-            documents=sanitized_chunks,
-            embedding=embeddings,
-            persist_directory=persist_directory
-        )
-        logger.info(f"Successfully indexed {len(chunks)} chunks.")
-    else:
-        # Check if directory exists using config logic
-        if not os.path.exists(persist_directory):
-            logger.info(f"Warning: {persist_directory} does not exist. Creating empty store.")
+def add_to_vector_store(chunks: List[Document], persist_directory: str = str(VECTOR_DB_DIR)):
+    """
+    Adds new chunks with unique IDs to prevent duplicates during manual uploads.
+    """
+    logger.info(f"--- [VectorStore] Processing {len(chunks)} chunks for the Vault ---")
 
-        logger.info(f"--- [VectorStore] Loading EXISTING store from: {persist_directory} ---")
-        vector_db = Chroma(
-            persist_directory=persist_directory,
-            embedding_function=embeddings
-        )
+    # 1. Clean metadata
+    sanitized_chunks = filter_complex_metadata(chunks)
 
-    return vector_db
+    # 2. Generate Unique IDs (Source + Index)
+    # This ensures that if you upload 'report.pdf' twice, it won't duplicate entries
+    ids = []
+    for i, doc in enumerate(sanitized_chunks):
+        source = os.path.basename(doc.metadata.get("source", "unknown"))
+        ids.append(f"{source}_chunk_{i}")
+
+    # 3. Get the store (this handles loading existing or preparing for new)
+    db = get_vector_store(persist_directory)
+
+    # 4. Add documents with IDs
+    db.add_documents(sanitized_chunks, ids=ids)
+
+    logger.info(f"Successfully synchronized {len(sanitized_chunks)} chunks.")
+    return db
 
 
 if __name__ == "__main__":
-    # Path logic handled by config
-    # We just need the filename; RAW_DATA_DIR handles the rest
-    TEST_FILENAME = "sample_research.pdf"
-    TEST_PDF_PATH = RAW_DATA_DIR / TEST_FILENAME
+    from src.ingestion.pdf_loader import load_specific_pdfs
+    from src.ingestion.chunking import chunk_documents
 
-    # Use the Path object from config to check existence
-    if VECTOR_DB_DIR.exists() and any(VECTOR_DB_DIR.iterdir()):
-        print("--- [Test] Vector DB found. Loading existing store. ---")
-        db = get_vector_store()
+    # 1. Define files to ingest
+    file_list = ["sample_research.pdf"]
+    paths = [str(RAW_DATA_DIR / f) for f in file_list]
+
+    # 2. Load
+    raw_docs = load_specific_pdfs(paths)
+
+    if not raw_docs:
+        logger.error("No documents were loaded.")
     else:
-        print("--- [Test] No Vector DB found. Starting ingestion pipeline. ---")
-        from src.ingestion.pdf_loader import load_pdf_elements
-        from src.ingestion.chunking import chunk_documents
+        # 3. Chunk
+        semantic_chunks = chunk_documents(raw_docs)
 
-        if TEST_PDF_PATH.exists():
-            # Pass just the filename since pdf_loader is also updated to use RAW_DATA_DIR
-            raw_docs = load_pdf_elements(TEST_FILENAME)
-            semantic_chunks = chunk_documents(raw_docs)
-            db = get_vector_store(chunks=semantic_chunks)
-        else:
-            print(f"Test failed: Place a PDF at {TEST_PDF_PATH}")
-            exit()
+        # 4. Simplified Logic:
+        # add_to_vector_store handles both "creation" and "appending"
+        # because get_vector_store() returns a valid object regardless.
+        db = add_to_vector_store(semantic_chunks)
 
-    # 4. Semantic Search Test
-    query = "What is Simulation?"
-    print(f"\n🔍 Testing Search for: '{query}'")
-    results = db.similarity_search(query, k=2)
+        # 5. Verification Search
+        query = "What are the main findings?"
+        print(f"\n🔍 Testing Search for: '{query}'")
+        results = db.similarity_search(query, k=3)
 
-    for i, res in enumerate(results):
-        print(f"\nMatch {i + 1}: {res.page_content[:250]}...")
+        for i, res in enumerate(results):
+            source = res.metadata.get('source', 'Unknown')
+            # Extra detail: showing the source helps verify the accumulation worked
+            print(f"\n[Match {i+1}] Source: {os.path.basename(source)}")
+            print(f"Content: {res.page_content[:150]}...")

@@ -15,9 +15,12 @@ def format_docs(docs):
         Combine the content of retrieved documents into a single string
         and validate the token budget of retrieved documents.
     """
+
+    for i, doc in enumerate(docs):
+        logger.info(f"Chunk {i + 1} content: {doc.page_content[:100]}...")  # See the first 100 chars
+
     logger.info(f"Retriever found {len(docs)} relevant chunks from the Vector Store.")
     combined_text = "\n\n".join(doc.page_content for doc in docs)
-
     # Budgeting the context before sending to LLM
     final_context = validate_context_budget(combined_text, limit=2000)
     logger.info(f"Final context formatted and validated.")

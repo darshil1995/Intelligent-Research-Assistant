@@ -31,19 +31,24 @@ def chunk_documents(documents: List[Document]) -> List[Document]:
 
 
 if __name__ == "__main__":
-    # Test logic
-    from src.ingestion.pdf_loader import load_pdf_elements
-    import os
+    from src.ingestion.pdf_loader import load_specific_pdfs
 
-    file_name= "sample_research.pdf"
-    test_path = str(RAW_DATA_DIR / file_name)
-    if os.path.exists(test_path):
-        docs = load_pdf_elements(test_path)
-        if docs:
-            final_chunks = chunk_documents(docs)
-            print(f"Example Chunk 1: {final_chunks[0].page_content[:200]}")
+    # 1. Define your list of dynamic filenames
+    paths = [str(RAW_DATA_DIR / f) for f in ["sample_research.pdf"]]
+
+    # 2. Load all documents at once
+    # Your new load_specific_pdfs now returns elements from ALL files in one list
+    logger.info(f"Starting ingestion for {len(paths)} files...")
+    all_docs = load_specific_pdfs(paths)
+
+    if all_docs:
+        # 3. Chunk everything in one go
+        # The splitter processes the entire list of elements sequentially
+        final_chunks = chunk_documents(all_docs)
+
+        logger.info(f"Success! Total chunks created: {len(final_chunks)}")
+
+        if len(final_chunks) > 0:
+            print(f"--- Preview of first chunk ---\n{final_chunks[0].page_content[:200]}...")
     else:
-        raise (
-            logger.error(f"PDF file not found at: {test_path}"),
-            FileNotFoundError(f"PDF file not found at: {test_path}")
-        )
+        logger.error("No documents were loaded. Check if the file names are correct in RAW_DATA_DIR.")
