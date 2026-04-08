@@ -1,6 +1,8 @@
 import os
 import asyncio
 
+from langchain_core.runnables import RunnableConfig
+
 from src.evaluation.evaluator import run_eval_experiment
 from src.utils.logger import get_logger
 from src.ingestion.pdf_loader import load_specific_pdfs
@@ -47,7 +49,7 @@ def run_research_assistant():
     agent_executor = get_agent_executor()
 
     print("\n" + "=" * 50)
-    print("🤖 INTELLIGENT AGENTIC ASSISTANT (WEEK 3)")
+    print("🤖 INTELLIGENT AGENTIC ASSISTANT")
     print("=" * 50)
     print("Type 'exit' to quit or 'upload' to add new files.")
 
@@ -71,12 +73,20 @@ def run_research_assistant():
         try:
             logger.info(f"User Query: {user_input}")
 
-            # IMPORTANT: The AgentExecutor expects the key "input"
-            # instead of "question" based on the Hub prompt schema.
-            response_dict = agent_executor.invoke({"input": user_input})
+            # Add a config dictionary for session tracking
+            config = RunnableConfig(
+                configurable={"session_id": "research_session_1"}
+            )
+            # config = {"configurable": {"session_id": "research_session_1"}}
 
-            # Extract the data needed for RAGAS
+            response_dict = agent_executor.invoke(
+                {"input": user_input},
+                config=config
+            )
+
             answer = response_dict["output"]
+            # print(f"\n🤖 Answer: {answer}")
+
             print(f"\nAnswer: {answer}")
 
             # 3. EXTRACT RETRIEVED CONTEXTS

@@ -1,14 +1,19 @@
+from langchain_core.runnables import RunnableWithMessageHistory, RunnableConfig, Runnable
 from langsmith import Client
 from langchain_classic.agents import AgentExecutor, create_openai_functions_agent
 from langchain_openai import ChatOpenAI
 
 from src.utils.config import LLM_MODEL, VECTOR_SEARCH_TOP_K
+from src.utils.memory_manager import get_session_history
 from src.utils.token_counter import validate_context_budget
 from src.vectorstore.chroma_manager import get_vector_store
 from src.utils.logger import get_logger
 from src.utils.reranker import DocumentReranker
 from src.tools.web_search_tool import get_web_search_tool
 from src.tools.pdf_tool import get_pdf_search_tool
+
+from typing import Any, cast
+from langchain_core.runnables import Runnable
 
 # Initialize the reranker once
 reranker = DocumentReranker()
@@ -54,7 +59,7 @@ def get_agent_executor():
     prompt = client.pull_prompt("hwchase17/openai-functions-agent")
     agent = create_openai_functions_agent(llm, tools, prompt)
 
-    return AgentExecutor(
+    executor = AgentExecutor(
         agent=agent,
         tools=tools,
         verbose=True,
@@ -62,6 +67,12 @@ def get_agent_executor():
         return_intermediate_steps=True  # CRITICAL: This captures the RAG output
     )
 
+    return RunnableWithMessageHistory(
+        cast(Runnable[Any, Any], executor),
+        get_session_history,
+        input_messages_key="input",
+        history_messages_key="chat_history",
+    )
 
 if __name__ == "__main__":
     logger.info("--- Starting Research Agent Test Run ---")
@@ -72,12 +83,24 @@ if __name__ == "__main__":
         # Log BEFORE the long-running process
         logger.info(f"Invoking agent with query: '{query}'")
 
-        response = agent_executor.invoke({"input": query})
+        # Add a config dictionary for session tracking
+        config = RunnableConfig(
+            configurable={"session_id": "research_session_1"}
+        )
+        #config = {"configurable": {"session_id": "research_session_1"}}
+
+        response_dict = agent_executor.invoke(
+            {"input": query},
+            config=config
+        )
+
+        answer = response_dict["output"]
+        #print(f"\n🤖 Answer: {answer}")
 
         print("\n" + "=" * 30)
         print("AI ASSISTANT RESPONSE")
         print("=" * 30)
-        print(response['output'])
+        print(answer)
         print("=" * 30 + "\n")
 
     except Exception as e:
