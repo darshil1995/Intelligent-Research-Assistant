@@ -29,10 +29,18 @@ def load_specific_pdfs(file_paths: List[str]) -> List[Document]:
             loader = UnstructuredPDFLoader(
                 path,
                 mode="elements",
-                strategy="fast"
+                strategy="fast",
+                include_metadata=True
             )
 
-            all_docs.extend(loader.load())
+            docs = loader.load()
+
+            # DEBUG CHECK: Let's verify if page numbers are actually present
+            if docs and "page_number" not in docs[0].metadata:
+                logger.warning(f"No page_number found in {os.path.basename(path)}. "
+                               "Consider switching strategy to 'hi_res' if citations fail.")
+
+            all_docs.extend(docs)
             logger.info(f" Extraction Complete: {len(all_docs)} elements found.")
 
         except Exception as e:
