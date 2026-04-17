@@ -21,7 +21,7 @@ This project is a high-performance, Agentic Retrieval-Augmented Generation (RAG)
 ## 🔧 Installation & Setup
 ```bash
 # Clone the repo
-git clone [https://github.com/your-username/IntelligentResearchAssistant.git](https://github.com/your-username/IntelligentResearchAssistant.git)
+git clone [https://github.com/darshil1995/IntelligentResearchAssistant.git](https://github.com/darshil1995/IntelligentResearchAssistant.git)
 
 # Run with Docker (Recommended)
 docker-compose up --build
