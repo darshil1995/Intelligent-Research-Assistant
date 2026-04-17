@@ -14,11 +14,11 @@ from fastapi.responses import StreamingResponse
 logger = get_logger(__name__)
 app = FastAPI(
     title="Intelligent Research Assistant API",
-    description="A multi-tool Agentic RAG backend with multi-user isolation.",
-    version="1.2.0"
+    description="A multi-tool Agentic RAG backend with multi-user isolation and source transparency.",
+    version="1.3.0"
 )
 
-# Initialize the Agent once for the application lifecycle
+# Initialize the Agent
 agent_executor = get_agent_executor()
 
 
@@ -43,103 +43,36 @@ async def upload_document(
         session_id: str = Query(..., description="Unique session ID for multi-user isolation"),
         file: UploadFile = File(...)
 ):
-    """
-    Endpoint to ingest new PDF documents into the local knowledge vault,
-    tagged with a session_id for isolation.
-    """
-    # Create session-specific upload directory to prevent file overwrite collisions
     upload_dir = os.path.join("data/raw", session_id)
     os.makedirs(upload_dir, exist_ok=True)
-
     try:
-        # 1. Save file to disk
         file_path = os.path.join(upload_dir, file.filename)
         with open(file_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
 
-        logger.info(f"API: Received file '{file.filename}' for session '{session_id}'.")
-
-        # 2. Trigger the Ingestion Pipeline with the session_id
-        # We pass the session_id so chroma_manager can tag the chunks
         from main import process_new_uploads
         process_new_uploads([file_path], session_id=session_id)
-
-        return {"message": f"Successfully indexed {file.filename} for session {session_id}"}
-
+        return {"message": f"Successfully indexed {file.filename}"}
     except Exception as e:
-        logger.error(f"Upload Error for session {session_id}: {e}")
-        raise HTTPException(status_code=500, detail=f"Ingestion failed: {str(e)}")
-
-
-@app.post("/chat", response_model=AgentResponse)
-async def chat_endpoint(request: QueryRequest):
-    """
-    Primary chat endpoint for interacting with the Agent.
-    """
-    try:
-        # 1. Prepare Session Config (Memory relies on this)
-        config = {"configurable": {"session_id": request.session_id}}
-
-        logger.info(f"API: Processing query for session '{request.session_id}'")
-
-        # 2. Invoke Agent (Tool inputs will include session_id for filtering)
-        # Note: Your agent tools need to access this session_id to filter ChromaDB
-        response_dict = agent_executor.invoke(
-            {"input": request.input, "session_id": request.session_id},
-            config=config
-        )
-        answer = response_dict["output"]
-
-        # 3. Context Extraction for RAGAS
-        retrieved_contexts = []
-        if "intermediate_steps" in response_dict:
-            for action, tool_output in response_dict["intermediate_steps"]:
-                if action.tool == "PDF_Research_Search":
-                    retrieved_contexts.extend(tool_output.split("\n\n"))
-
-        # 4. Evaluate the response
-        eval_scores = {"faithfulness": 0.0, "answer_relevancy": 0.0}
-        if retrieved_contexts:
-            try:
-                eval_scores = await run_eval_experiment(
-                    query=request.input,
-                    response=answer,
-                    contexts=retrieved_contexts
-                )
-            except Exception as e:
-                logger.error(f"RAGAS evaluation failed: {e}")
-
-        return AgentResponse(
-            answer=answer,
-            faithfulness=eval_scores.get("faithfulness", 0.0),
-            relevancy=eval_scores.get("answer_relevancy", 0.0),
-            session_id=request.session_id
-        )
-
-    except Exception as e:
-        logger.error(f"Chat API Error: {e}")
-        raise HTTPException(status_code=500, detail="Internal Agent Error")
+        logger.error(f"Upload Error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/chat/stream")
 async def chat_stream(request: QueryRequest):
     """
-    Streaming endpoint with session isolation support.
+    Streaming endpoint that now yields raw source chunks for UI inspection.
     """
 
     async def event_generator():
-        # Inject session_id into the input so tools can use it for filtering
         input_data = {"input": request.input, "session_id": request.session_id}
         config = {"configurable": {"session_id": request.session_id}}
-
         retrieved_contexts = []
         final_answer = ""
 
         try:
             async for event in agent_executor.astream_events(
-                    input_data,
-                    config=config,
-                    version="v1"
+                    input_data, config=config, version="v1"
             ):
                 kind = event["event"]
 
@@ -148,7 +81,10 @@ async def chat_stream(request: QueryRequest):
 
                 elif kind == "on_tool_end":
                     if event["name"] == "PDF_Research_Search":
-                        retrieved_contexts.append(event["data"].get("output", ""))
+                        # We capture the output to return it as a 'source_chunks' packet later
+                        output = event["data"].get("output", "")
+                        if output:
+                            retrieved_contexts.append(output)
 
                 elif kind == "on_chat_model_stream":
                     content = event["data"]["chunk"].content
@@ -156,7 +92,12 @@ async def chat_stream(request: QueryRequest):
                         final_answer += content
                         yield f"data: {json.dumps({'type': 'token', 'content': content})}\n\n"
 
-            # Final Evaluation Step
+            # 1. Yield Source Chunks (The new Day 28 feature)
+            # This is sent after the answer but before evaluation
+            if retrieved_contexts:
+                yield f"data: {json.dumps({'type': 'source_chunks', 'content': retrieved_contexts})}\n\n"
+
+            # 2. Final Evaluation Step
             if retrieved_contexts and final_answer:
                 try:
                     eval_scores = await asyncio.wait_for(

@@ -4,7 +4,6 @@ import os
 import json
 
 # --- CONFIGURATION ---
-# Use 'http://backend:8000' if running in Docker, otherwise 'http://127.0.0.1:8000'
 API_URL = os.getenv("API_URL", "http://127.0.0.1:8000")
 
 st.set_page_config(page_title="Intelligent Research Assistant", layout="wide", page_icon="🤖")
@@ -13,66 +12,75 @@ st.set_page_config(page_title="Intelligent Research Assistant", layout="wide", p
 if "messages" not in st.session_state:
     st.session_state.messages = []
 if "session_id" not in st.session_state:
-    # This ID acts as the 'Owner Key' for documents in ChromaDB
     st.session_state.session_id = f"user_{os.urandom(4).hex()}"
+if "last_sources" not in st.session_state:
+    st.session_state.last_sources = []
 
-# --- SIDEBAR: UPLOAD ---
+# --- SIDEBAR: KNOWLEDGE VAULT & SESSION TOOLS ---
 with st.sidebar:
     st.title("📂 Knowledge Vault")
-    st.info(f"Session ID: `{st.session_state.session_id}`")  # Visual confirmation of isolation
-    uploaded_file = st.file_uploader("Upload a Research PDF", type="pdf")
+    st.info(f"**Active Session:** `{st.session_state.session_id}`")
 
+    uploaded_file = st.file_uploader("Upload a Research PDF", type="pdf")
     if uploaded_file:
-        if st.button("Index Document"):
-            with st.spinner("Processing PDF..."):
+        if st.button("Index Document", use_container_width=True):
+            with st.spinner("Analyzing and Vectorizing..."):
                 try:
                     files = {"file": (uploaded_file.name, uploaded_file.getvalue(), "application/pdf")}
-
-                    # --- CRITICAL CHANGE FOR DAY 26 ---
-                    # We pass the session_id as a query parameter to tag the data
                     params = {"session_id": st.session_state.session_id}
                     response = requests.post(f"{API_URL}/upload", params=params, files=files)
-
                     if response.status_code == 201:
-                        st.success(f"Successfully indexed {uploaded_file.name}!")
+                        st.success(f"Indexed: {uploaded_file.name}")
                     else:
-                        st.error(f"Failed to upload: {response.json().get('detail', 'Unknown error')}")
+                        st.error("Ingestion failed.")
                 except Exception as e:
                     st.error(f"Connection Error: {e}")
 
+    st.divider()
+    st.subheader("🛠️ Session Controls")
+
+    # Day 29: Hardening - Allow users to clear context or switch sessions
+    if st.button("🗑️ Clear Chat History", use_container_width=True):
+        st.session_state.messages = []
+        st.session_state.last_sources = []
+        st.rerun()
+
+    if st.button("🔄 New Research Thread", use_container_width=True, help="Generates a new ID to isolate data"):
+        st.session_state.session_id = f"user_{os.urandom(4).hex()}"
+        st.session_state.messages = []
+        st.session_state.last_sources = []
+        st.rerun()
+
 # --- MAIN UI: CHAT ---
 st.title("🤖 Agentic Research Assistant")
-st.caption("Multi-User Isolation | Real-time Streaming | RAGAS Metrics")
+st.caption("Day 29: Production Ready | Multi-User | Source Inspector")
 
-# Display chat history from session state
+# Display chat history
 for message in st.session_state.messages:
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
         if "metrics" in message:
-            col1, col2 = st.columns(2)
-            col1.metric("Faithfulness", f"{message['metrics']['faith']:.2f}")
-            col2.metric("Relevancy", f"{message['metrics']['rel']:.2f}")
+            m_col1, m_col2 = st.columns(2)
+            m_col1.metric("Faithfulness", f"{message['metrics']['faith']:.2f}")
+            m_col2.metric("Relevancy", f"{message['metrics']['rel']:.2f}")
 
 # User input
-if prompt := st.chat_input("Ask a question about your research..."):
-    # Add user message to history
+if prompt := st.chat_input("Ask about your research..."):
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
         st.markdown(prompt)
 
-    # 1. Start Assistant Response
     with st.chat_message("assistant"):
         status_placeholder = st.empty()
         response_placeholder = st.empty()
 
         full_response = ""
-        metrics = {"faith": 0.0, "rel": 0.0}
+        current_metrics = {"faith": 0.0, "rel": 0.0}
+        current_sources = []
 
-        # Session ID is included in payload for both Memory and Metadata filtering
         payload = {"input": prompt, "session_id": st.session_state.session_id}
 
         try:
-            # Using stream=True for Server-Sent Events (SSE)
             with requests.post(f"{API_URL}/chat/stream", json=payload, stream=True) as r:
                 for line in r.iter_lines():
                     if line:
@@ -87,25 +95,36 @@ if prompt := st.chat_input("Ask a question about your research..."):
                                 full_response += data["content"]
                                 response_placeholder.markdown(full_response + "▌")
 
-                            elif data["type"] == "eval":
-                                metrics["faith"] = data["faithfulness"]
-                                metrics["rel"] = data["relevancy"]
+                            elif data["type"] == "source_chunks":
+                                # Day 28/29: Capture raw context for transparency
+                                current_sources = data["content"]
 
-            # Cleanup status and show final clean markdown
+                            elif data["type"] == "eval":
+                                current_metrics["faith"] = data["faithfulness"]
+                                current_metrics["rel"] = data["relevancy"]
+
             status_placeholder.empty()
             response_placeholder.markdown(full_response)
 
-            # 2. Display Trust Metrics
-            col1, col2 = st.columns(2)
-            col1.metric("Faithfulness (Groundedness)", f"{metrics['faith']:.2f}")
-            col2.metric("Answer Relevancy", f"{metrics['rel']:.2f}")
+            # Display Trust Metrics
+            c1, c2 = st.columns(2)
+            c1.metric("Faithfulness (Groundedness)", f"{current_metrics['faith']:.2f}")
+            c2.metric("Answer Relevancy", f"{current_metrics['rel']:.2f}")
 
-            # Persist to history
+            # Day 29: New Source Inspector UI
+            if current_sources:
+                with st.expander("📄 Inspect Source Evidence"):
+                    for i, chunk in enumerate(current_sources):
+                        st.markdown(f"**Source Context {i + 1}**")
+                        st.info(chunk)
+                st.session_state.last_sources = current_sources
+
+            # Save to history
             st.session_state.messages.append({
                 "role": "assistant",
                 "content": full_response,
-                "metrics": metrics
+                "metrics": current_metrics
             })
 
         except Exception as e:
-            st.error(f"The agent encountered an error: {e}")
+            st.error(f"System Error: {e}")

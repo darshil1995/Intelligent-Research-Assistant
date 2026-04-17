@@ -30,7 +30,9 @@ def load_specific_pdfs(file_paths: List[str]) -> List[Document]:
                 path,
                 mode="elements",
                 strategy="fast",
-                include_metadata=True
+                include_metadata=True,
+                chunking_strategy="by_title",
+                max_characters=1500
             )
 
             docs = loader.load()
