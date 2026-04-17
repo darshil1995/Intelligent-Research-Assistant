@@ -20,7 +20,6 @@ logger = get_logger(__name__)
 def get_vector_store(persist_directory: str = str(VECTOR_DB_DIR)):
     """
     Returns the existing Vector Store instance.
-    If it doesn't exist, it returns an empty Chroma object tied to the directory.
     """
     if not OPENAI_API_KEY:
         raise ValueError("OPENAI_API_KEY not found. Please check your .env file.")
@@ -33,31 +32,33 @@ def get_vector_store(persist_directory: str = str(VECTOR_DB_DIR)):
     )
 
 
-def add_to_vector_store(chunks: List[Document], persist_directory: str = str(VECTOR_DB_DIR)):
+def add_to_vector_store(chunks: List[Document], session_id: str, persist_directory: str = str(VECTOR_DB_DIR)):
     """
-    Adds new chunks with unique IDs to prevent duplicates during manual uploads.
+    Adds new chunks with unique IDs and session_id tags for multi-user isolation.
     """
-    logger.info(f"--- [VectorStore] Processing {len(chunks)} chunks for the Vault ---")
+    logger.info(f"--- [VectorStore] Processing {len(chunks)} chunks for Session: {session_id} ---")
 
-    # 1. Clean metadata
+    # 1. Inject session_id into metadata for isolation filtering
+    # This allows the retriever to 'hide' other users' data
+    for chunk in chunks:
+        chunk.metadata["session_id"] = session_id
+
+    # 2. Clean metadata
     sanitized_chunks = filter_complex_metadata(chunks)
 
-    # 2. Generate Unique IDs (Source + Index)
-    # This ensures that if you upload 'report.pdf' twice, it won't duplicate entries
+    # 3. Generate Session-Specific Unique IDs
+    # Adding session_id to the ID prevents collisions if two users upload files with the same name
     ids = []
     for i, doc in enumerate(sanitized_chunks):
         source = os.path.basename(doc.metadata.get("source", "unknown"))
-        ids.append(f"{source}_chunk_{i}")
+        ids.append(f"{session_id}_{source}_chunk_{i}")
 
-    # 3. Get the store (this handles loading existing or preparing for new)
+    # 4. Get the store and add documents
     db = get_vector_store(persist_directory)
-
-    # 4. Add documents with IDs
     db.add_documents(sanitized_chunks, ids=ids)
 
-    logger.info(f"Successfully synchronized {len(sanitized_chunks)} chunks.")
+    logger.info(f"Successfully synchronized {len(sanitized_chunks)} chunks for vault isolation.")
     return db
-
 
 if __name__ == "__main__":
     from src.ingestion.pdf_loader import load_specific_pdfs

@@ -14,7 +14,7 @@ from src.agents.research_agent import get_agent_executor
 logger = get_logger(__name__)
 
 
-def process_new_uploads(file_paths: list):
+def process_new_uploads(file_paths: list, session_id: str):
     """
     Orchestrates the ingestion of new files into the existing knowledge base.
     """
@@ -22,7 +22,7 @@ def process_new_uploads(file_paths: list):
         logger.info("No new files provided for upload.")
         return
 
-    logger.info(f"--- Starting Ingestion for {len(file_paths)} files ---")
+    logger.info(f"--- Starting Ingestion for {len(file_paths)} files for Session: {session_id} ---")
 
     # 1. Load PDFs from provided paths
     raw_docs = load_specific_pdfs(file_paths)
@@ -35,7 +35,7 @@ def process_new_uploads(file_paths: list):
     semantic_chunks = chunk_documents(raw_docs)
 
     # 3. Add to the existing Vector Store (incremental update)
-    add_to_vector_store(semantic_chunks)
+    add_to_vector_store(semantic_chunks, session_id=session_id)
     logger.info("Knowledge base successfully updated.")
 
 
